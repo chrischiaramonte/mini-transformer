@@ -1,3 +1,4 @@
+from requests import head
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -12,6 +13,7 @@ learning_rate = 1e-3
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
 n_embd = 32
+n_layer = 4
 # -------------
 
 torch.manual_seed(1337)
@@ -62,6 +64,8 @@ class Head(nn.Module):
       self.value = nn.Linear(n_embd, head_size, bias=False)
       self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
 
+      self.dropout = nn.Dropout(dropout)
+
     def forward(self, x):
        B, T, C = x.shape
        k = self.key(x) # (B, T, C)
@@ -71,6 +75,7 @@ class Head(nn.Module):
        wei = q @ k.transpose(-2, -1) * C**-0.5 # (B, T, T) 
        wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf'))
        wei = F.softmax(wei, dim=-1) # (B, T, T)
+       wei = self.dropout(wei)
 
       # compute new vectors for tokens
        v = self.value(x) # (B, T, C)
@@ -83,6 +88,7 @@ class MultiHeadAttenton(nn.Module):
        super().__init__()
        self.heads = nn.ModuleList([Head(head_size) for _ in range(n_head)])
        self.proj = nn.Linear(n_embd, n_embd)
+       self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
       out = torch.cat([h(x) for h in self.heads], dim=-1) # concat over C dim
@@ -96,7 +102,8 @@ class FeedForward(nn.Module):
        self.net = nn.Sequential(
           nn.Linear(n_embd, 4 * n_embd), # expand size to making learning more rich
           nn.ReLU(),
-          nn.Linear(4 * n_embd, n_embd)
+          nn.Linear(4 * n_embd, n_embd),
+          nn.Dropout(dropout)
        )
 
     def forward(self, x):
@@ -124,11 +131,8 @@ class BigramLanguageModel(nn.Module):
       super().__init__()
       self.token_embedding_table = nn.Embedding(vocab_size, n_embd) # random embedding table, each row is a learned vector
       self.position_embedding_table = nn.Embedding(block_size, n_embd) 
-      self.blocks = nn.Sequential(
-         Block(n_embd, n_head=4),
-         Block(n_embd, n_head=4),
-         Block(n_embd, n_head=4),
-      )
+      self.blocks = nn.Sequential(*[Block(n_embd, n_head=n_head) for _ in range(n_layer)])
+      self.ln_f = nn.LayerNorm(n_embd) # final
       self.lm_head = nn.Linear(n_embd, vocab_size)
 
     def forward(self, idx, targets=None):
