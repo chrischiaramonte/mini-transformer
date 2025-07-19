@@ -1,8 +1,6 @@
-from requests import head
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from datasets import load_dataset
 
 # hyper parameters
 batch_size = 128
@@ -16,46 +14,6 @@ n_embd = 384
 n_head = 6 # so each head is 384/6
 n_layer = 4
 dropout = 0.2
-# -------------
-
-torch.manual_seed(1337)
-
-ds = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
-text = "\n".join(ds["text"])
-chars = sorted(list(set(text)))
-vocab_size = len(chars)
-
-stoi = {ch: i for i, ch in enumerate(chars)}
-itos = {i: ch for i, ch in enumerate(chars)}
-encode = lambda s: [stoi[c] for c in s] # for each character in a string
-decode = lambda l: ''.join([itos[i] for i in l]) # for each integer in a list of integers
-
-data = torch.tensor(encode(text), dtype=torch.long)
-n = int(0.9*len(data)) # first 90% of the data
-train_data = data[:n]
-val_data = data[n:]
-
-def get_batch(split):
-    data = train_data if split == 'train' else val_data
-    ix = torch.randint(len(data) - block_size, (batch_size,)) # tensor of random ints
-    x = torch.stack([data[i:i+block_size] for i in ix]) # 2d tensor each row is a batch
-    y = torch.stack([data[i+1:i+block_size+1] for i in ix])
-    x, y = x.to(device), y.to(device)
-    return x, y
-
-@torch.no_grad() # we wont call backpropogation so this is memory efficient
-def estimate_loss():
-  out = {}
-  model.eval()
-  for split in ['train', 'val']:
-    losses = torch.zeros(eval_iters)
-    for k in range(eval_iters):
-      X, Y = get_batch(split)
-      logits, loss = model(X, Y)
-      losses[k] = loss.item()
-    out[split] = losses.mean()
-  model.train()
-  return out
 
 # single attention head
 class Head(nn.Module):
@@ -129,11 +87,11 @@ class Block(nn.Module):
 
 class BigramLanguageModel(nn.Module):
 
-    def __init__(self):
+    def __init__(self, vocab_size):
       super().__init__()
       self.token_embedding_table = nn.Embedding(vocab_size, n_embd) # random embedding table, each row is a learned vector
       self.position_embedding_table = nn.Embedding(block_size, n_embd) 
-      self.blocks = nn.Sequential(*[Block(n_embd, n_head=n_head) for _ in range(n_layer)])
+      self.blocks = nn.Sequential(*[Block(n_embd, n_head=n_head) for _ in range(n_layer)]) 
       self.ln_f = nn.LayerNorm(n_embd) # final
       self.lm_head = nn.Linear(n_embd, vocab_size)
 
@@ -148,7 +106,7 @@ class BigramLanguageModel(nn.Module):
       logits = self.lm_head(x) # (B, T, vocab_size) raw score for each of the tokens possible next token
 
       if targets is None:
-        loss = None
+        loss = None 
       else:
         B, T, C = logits.shape
         logits = logits.view(B*T, C)
@@ -166,25 +124,3 @@ class BigramLanguageModel(nn.Module):
         idx_next = torch.multinomial(probs, num_samples=1) # (B, 1) adds randomness to choosing next token for each batch
         idx = torch.cat((idx, idx_next), dim=1) # (B, T+1)
       return idx
-    
-model = BigramLanguageModel()
-m = model.to(device)
-    
-optimizer = torch.optim.AdamW(m.parameters(), lr=learning_rate)
-
-for iter in range(max_iters):
-    if iter % eval_interval == 0:
-        losses = estimate_loss()
-        print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
-
-    xb, yb = get_batch('train')
-
-    # eval the loss
-    logits, loss = m(xb, yb)
-    optimizer.zero_grad(set_to_none=True) # zero gradients from prev step
-    loss.backward() # find gradients
-    optimizer.step() # take a step to better weights
-
-context = torch.zeros((1, 1), dtype=torch.long, device=device)
-print(decode(m.generate(context, max_new_tokens=500)[0].tolist()))
-
