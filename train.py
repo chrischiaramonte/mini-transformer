@@ -3,19 +3,19 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from datasets import load_dataset
+import tiktoken
 from model import BigramLanguageModel, batch_size, block_size, max_iters, eval_interval, learning_rate, device, eval_iters
 
 torch.manual_seed(1337)
 
 ds = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
 text = "\n".join(ds["text"])
-chars = sorted(list(set(text)))
-vocab_size = len(chars)
 
-stoi = {ch: i for i, ch in enumerate(chars)}
-itos = {i: ch for i, ch in enumerate(chars)}
-encode = lambda s: [stoi[c] for c in s] # for each character in a string
-decode = lambda l: ''.join([itos[i] for i in l]) # for each integer in a list of integers
+enc = tiktoken.get_encoding("gpt2")
+vocab_size = enc.n_vocab
+
+encode = lambda s: enc.encode(s)
+decode = lambda l: enc.decode(l)
 
 data = torch.tensor(encode(text), dtype=torch.long)
 n = int(0.9*len(data)) # first 90% of the data
@@ -33,7 +33,7 @@ def get_batch(split):
 @torch.no_grad() # saves memory/compute by not building a backwards graph
 def estimate_loss():
   out = {}
-  model.eval()
+  model.eval() # switch to eval mode
   for split in ['train', 'val']:
     losses = torch.zeros(eval_iters)
     for k in range(eval_iters): 
