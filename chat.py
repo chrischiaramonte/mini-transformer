@@ -34,12 +34,14 @@ def generate_response(model, enc, prompt, max_new_tokens=max_new_tokens, tempera
             probs = torch.nn.functional.softmax(logits, dim=-1)
             idx_next = torch.multinomial(probs, num_samples=1)
             idx = torch.cat((idx, idx_next), dim=1)
-            
-            # check for end token
-            if enc.decode([idx_next.item()]) == '<endOfText>':
-                break
-    
+                
     response = enc.decode(idx[0].tolist())
+    
+    if '<bot>' in response:
+        response = response.split('<bot>')[-1]
+        if '<endOfText>' in response:
+            response = response.split('<endOfText>')[0]
+        return response.strip()
     
     return response
 

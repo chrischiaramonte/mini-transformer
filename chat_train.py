@@ -35,24 +35,20 @@ def estimate_loss():
 
 # load pretrained model
 print("Loading pretrained model...")
-import os
-if not os.path.exists("model_checkpoint.pt"):
-    print("ERROR: No pretrained model found!")
-    print("Please run 'python train.py' first to create the base model.")
-    exit(1)
 
 vocab_size = 50257  # GPT-2 vocab size
 model = BigramLanguageModel(vocab_size)
 model.load_state_dict(torch.load("model_checkpoint.pt", map_location=device))
 model = model.to(device)
+
 print("Pretrained model loaded successfully!")
 
 # fine-tune with lower learning rate
-learning_rate = 1e-4
+learning_rate = 5e-5
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-max_iters = 1000
-eval_interval = 100
+max_iters = 15000
+eval_interval = 1000
 train_losses = []
 val_losses = []
 steps = []

@@ -57,6 +57,11 @@ train_perplexities = []
 val_perplexities = []
 steps = []
 
+# Early stopping
+best_val_loss = float('inf')
+patience = 3  # Stop if no improvement for 3 evaluations
+no_improve_count = 0
+
 for iter in range(max_iters):
     if iter % eval_interval == 0:
         losses = estimate_loss()
@@ -73,6 +78,18 @@ for iter in range(max_iters):
         steps.append(iter)
         
         print(f"step {iter}: train loss {train_loss:.4f}, val loss {val_loss:.4f}, train ppl {train_ppl:.2f}, val ppl {val_ppl:.2f}")
+        
+        # Early stopping check
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            no_improve_count = 0
+            # Save best model
+            torch.save(m.state_dict(), "best_model.pt")
+        else:
+            no_improve_count += 1
+            if no_improve_count >= patience:
+                print(f"Early stopping at step {iter} (best val loss: {best_val_loss:.4f})")
+                break
 
     xb, yb = get_batch('train')
 
