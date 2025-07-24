@@ -5,7 +5,7 @@ from torch.nn import functional as F
 # hyper parameters
 batch_size = 32
 block_size = 128
-max_iters = 5000
+max_iters = 3500
 eval_interval = 500
 learning_rate = 3e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -43,7 +43,7 @@ class Head(nn.Module):
        return out
     
 
-class MultiHeadAttenton(nn.Module):
+class MultiHeadAttention(nn.Module):
     def __init__(self, n_head, head_size):
        super().__init__()
        self.heads = nn.ModuleList([Head(head_size) for _ in range(n_head)])
@@ -74,7 +74,7 @@ class Block(nn.Module):
     def __init__(self, n_embd, n_head):
        super().__init__()
        head_size = n_embd // n_head
-       self.sa = MultiHeadAttenton(n_head, head_size)
+       self.sa = MultiHeadAttention(n_head, head_size)
        self.ffwd = FeedForward(n_embd)
        self.ln1 = nn.LayerNorm(n_embd)
        self.ln2 = nn.LayerNorm(n_embd)
@@ -102,6 +102,7 @@ class BigramLanguageModel(nn.Module):
       pos_embd = self.position_embedding_table(torch.arange(T, device=device)) # (T, C)
       x = tok_embd + pos_embd
       x = self.blocks(x)
+      x = self.ln_f(x)
 
       logits = self.lm_head(x) # (B, T, vocab_size) raw score for each of the tokens possible next token
 

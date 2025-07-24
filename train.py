@@ -1,12 +1,10 @@
-from requests import head
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from datasets import load_dataset
 import tiktoken
+import matplotlib.pyplot as plt
 from model import BigramLanguageModel, batch_size, block_size, max_iters, eval_interval, learning_rate, device, eval_iters
-
-torch.manual_seed(1337)
 
 ds = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
 text = "\n".join(ds["text"])
@@ -39,20 +37,42 @@ def estimate_loss():
     for k in range(eval_iters): 
       X, Y = get_batch(split)
       logits, loss = model(X, Y)
-      losses[k] = loss.item()
-    out[split] = losses.mean()
+      losses[k] = loss.item()  # This is already per-token CE loss
+    out[split] = losses.mean()  # Average of per-token losses
   model.train()
   return out
 
 model = BigramLanguageModel(vocab_size)
 m = model.to(device)
+
+# Print number of parameters
+print(f"Number of parameters: {sum(p.numel() for p in m.parameters()):,}")
     
 optimizer = torch.optim.AdamW(m.parameters(), lr=learning_rate)
+
+# Lists to store metrics for plotting
+train_losses = []
+val_losses = []
+train_perplexities = []
+val_perplexities = []
+steps = []
 
 for iter in range(max_iters):
     if iter % eval_interval == 0:
         losses = estimate_loss()
-        print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+        train_loss = losses['train'] 
+        val_loss = losses['val']
+        train_ppl = torch.exp(train_loss).item()
+        val_ppl = torch.exp(val_loss).item()
+        
+        # Store metrics
+        train_losses.append(train_loss.item())
+        val_losses.append(val_loss.item())
+        train_perplexities.append(train_ppl)
+        val_perplexities.append(val_ppl)
+        steps.append(iter)
+        
+        print(f"step {iter}: train loss {train_loss:.4f}, val loss {val_loss:.4f}, train ppl {train_ppl:.2f}, val ppl {val_ppl:.2f}")
 
     xb, yb = get_batch('train')
 
@@ -64,3 +84,32 @@ for iter in range(max_iters):
 
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
 print(decode(m.generate(context, max_new_tokens=500)[0].tolist()))
+
+# Save the model
+torch.save(m.state_dict(), "model_checkpoint.pt")
+print("Model saved to model_checkpoint.pt")
+
+# Create plots
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+
+# Plot 1: Cross-Entropy Loss
+ax1.plot(steps, train_losses, label='Train Loss', color='blue')
+ax1.plot(steps, val_losses, label='Val Loss', color='red')
+ax1.set_xlabel('Steps')
+ax1.set_ylabel('Cross-Entropy Loss')
+ax1.set_title('Training and Validation Loss')
+ax1.legend()
+ax1.grid(True, alpha=0.3)
+
+# Plot 2: Perplexity (log scale)
+ax2.semilogy(steps, train_perplexities, label='Train Perplexity', color='blue')
+ax2.semilogy(steps, val_perplexities, label='Val Perplexity', color='red')
+ax2.set_xlabel('Steps')
+ax2.set_ylabel('Perplexity (log scale)')
+ax2.set_title('Training and Validation Perplexity')
+ax2.legend()
+ax2.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.savefig('training_metrics.png', dpi=150)
+plt.show()
