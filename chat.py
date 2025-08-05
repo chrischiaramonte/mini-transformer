@@ -2,11 +2,11 @@ import torch
 import tiktoken
 from model import BigramLanguageModel, block_size, device
 
-# settings
-max_new_tokens = 150
-temperature = 0.8
+max_new_tokens = 50    
+temperature = 0.8      
+top_k = 35      
 
-def load_model(model_path='chat_model.pt'):
+def load_model(model_path='chat_model_best.pt'):
     enc = tiktoken.get_encoding("gpt2")
     vocab_size = enc.n_vocab
     
@@ -17,45 +17,40 @@ def load_model(model_path='chat_model.pt'):
     
     return model, enc
 
-def generate_response(model, enc, prompt, max_new_tokens=max_new_tokens, temperature=temperature):
-    # predicts from this
-    context = f"<human>{prompt}<endOfText><bot>"
+def generate_response(model, enc, prompt):
+    # encode the prompt
+    idx = torch.tensor(enc.encode(prompt), dtype=torch.long).unsqueeze(0).to(device)
     
-    idx = torch.tensor(enc.encode(context), dtype=torch.long).unsqueeze(0).to(device)
-    
-    # generate
     with torch.no_grad():
-        for _ in range(max_new_tokens):
-            idx_cond = idx[:, -block_size:]
-            
-            logits, _ = model(idx_cond)
-            logits = logits[:, -1, :] / temperature
-            
-            probs = torch.nn.functional.softmax(logits, dim=-1)
-            idx_next = torch.multinomial(probs, num_samples=1)
-            idx = torch.cat((idx, idx_next), dim=1)
-                
-    response = enc.decode(idx[0].tolist())
-    
-    if '<bot>' in response:
-        response = response.split('<bot>')[-1]
-        if '<endOfText>' in response:
-            response = response.split('<endOfText>')[0]
+        generated = model.generate(idx, max_new_tokens, temperature=temperature, top_k=top_k)
+        full_response = enc.decode(generated[0].tolist())
+        
+        # extract only the new part
+        if len(full_response) > len(prompt):
+            response = full_response[len(prompt):]
+        else:
+            return ""
+        
+        # stop at end tokens or next human input
+        stop_tokens = ['<endOfText>', '<human>']
+        for token in stop_tokens:
+            if token in response:
+                response = response.split(token)[0]
+        
         return response.strip()
-    
-    return response
 
 def chat():
     print("Loading model...")
- 
-    model, enc = load_model('chat_model.pt')
+    
+    model, enc = load_model('chat_model_best.pt')
     print("Chat model loaded")
-   
+    
+    context = ""
     
     print("\nChat started! Type 'quit' to exit.\n")
     
     while True:
-        user_input = input("You: ").strip()
+        user_input = input("User: ").strip()
         
         if user_input.lower() == 'quit':
             break
@@ -63,11 +58,19 @@ def chat():
         if not user_input:
             continue
         
+        # create prompt for this exchange
+        prompt = f"{context}<human>{user_input}<endOfText><bot>"
+        
         # generate response
-        print("Bot: ", end="", flush=True)
-        response = generate_response(model, enc, user_input)
-        print(response)
-        print()
+        response = generate_response(model, enc, prompt)
+        
+        if response:
+            print("Bot: " + response)
+            # update context with this exchange
+            context = f"{context}<human>{user_input}<endOfText><bot>{response}<endOfText>"
+        else:
+            print("Bot: I'm not sure how to respond to that.")
+            context = f"{context}<human>{user_input}<endOfText><bot>I'm not sure how to respond to that.<endOfText>"
 
 if __name__ == "__main__":
     chat()

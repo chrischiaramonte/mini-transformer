@@ -3,17 +3,17 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 # hyper parameters
-batch_size = 32
-block_size = 128
-max_iters = 3500
+batch_size = 6 
+block_size = 1024
+max_iters = 100000  
 eval_interval = 500
 learning_rate = 3e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
-n_embd = 384
-n_head = 6 # so each head is 384/6
-n_layer = 4
-dropout = 0.2
+n_embd = 768 
+n_head = 12 
+n_layer = 12 
+dropout = 0.1  
 
 # single attention head
 class Head(nn.Module):
@@ -47,7 +47,7 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, n_head, head_size):
        super().__init__()
        self.heads = nn.ModuleList([Head(head_size) for _ in range(n_head)])
-       self.proj = nn.Linear(n_embd, n_embd)
+       self.proj = nn.Linear(n_embd, n_embd, bias=False)
        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -60,9 +60,9 @@ class FeedForward(nn.Module):
     def __init__(self, n_embd):
        super().__init__()
        self.net = nn.Sequential(
-          nn.Linear(n_embd, 4 * n_embd), # expand size to making learning more rich
+          nn.Linear(n_embd, 4 * n_embd, bias=False), # expand size to making learning more rich
           nn.ReLU(),
-          nn.Linear(4 * n_embd, n_embd),
+          nn.Linear(4 * n_embd, n_embd, bias=False),
           nn.Dropout(dropout)
        )
 
@@ -76,8 +76,8 @@ class Block(nn.Module):
        head_size = n_embd // n_head
        self.sa = MultiHeadAttention(n_head, head_size)
        self.ffwd = FeedForward(n_embd)
-       self.ln1 = nn.LayerNorm(n_embd)
-       self.ln2 = nn.LayerNorm(n_embd)
+       self.ln1 = nn.LayerNorm(n_embd, bias=False)
+       self.ln2 = nn.LayerNorm(n_embd, bias=False)
 
     def forward(self, x):
         x = x + self.sa(self.ln1(x))
@@ -92,8 +92,8 @@ class BigramLanguageModel(nn.Module):
       self.token_embedding_table = nn.Embedding(vocab_size, n_embd) # random embedding table, each row is a learned vector
       self.position_embedding_table = nn.Embedding(block_size, n_embd) 
       self.blocks = nn.Sequential(*[Block(n_embd, n_head=n_head) for _ in range(n_layer)]) 
-      self.ln_f = nn.LayerNorm(n_embd) # final
-      self.lm_head = nn.Linear(n_embd, vocab_size)
+      self.ln_f = nn.LayerNorm(n_embd, bias=False) # final
+      self.lm_head = nn.Linear(n_embd, vocab_size, bias=False)
 
     def forward(self, idx, targets=None):
       B, T = idx.shape
@@ -116,11 +116,18 @@ class BigramLanguageModel(nn.Module):
         
       return logits, loss # have a logic vector of input with vocab_size
 
-    def generate(self, idx, max_new_tokens): # for each batch continue generating tokens
+    @torch.no_grad()
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None): # for each batch continue generating tokens
       for _ in range(max_new_tokens):
-        idx_cond = idx[:, -block_size:]
+        idx_cond = idx if idx.size(1) <= block_size else idx[:, -block_size:]
         logits, loss = self(idx_cond) # calls foward
-        logits = logits[:, -1, :] # becomes (B, C) only last T position -> predicting 9th token
+        logits = logits[:, -1, :] / temperature # becomes (B, C) only last T position -> predicting 9th token
+        
+        # apply top_k filtering
+        if top_k is not None:
+            v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+            logits[logits < v[:, [-1]]] = -float('Inf')
+            
         probs = F.softmax(logits, dim=-1) 
         idx_next = torch.multinomial(probs, num_samples=1) # (B, 1) adds randomness to choosing next token for each batch
         idx = torch.cat((idx, idx_next), dim=1) # (B, T+1)

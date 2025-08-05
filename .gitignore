@@ -1,3 +1,13 @@
 *.pt
 *.png
+*.pth
+__pycache__/
+*.pyc
+*.pyo
+*.log
+.DS_Store
+*.tmp
+*.swp
+training_metrics.png
+chat_training.png
 nanoChatGPT/
